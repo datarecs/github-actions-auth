@@ -1,0 +1,20 @@
+name: 'Authenticate to DataRecs'
+description: 'Exchange GitHub Actions OIDC token for a DataRecs access token'
+inputs:
+  api-url:
+    description: 'DataRecs API base URL'
+    required: false
+    default: 'https://api.datarecs.io'
+  audience:
+    description: 'OIDC token audience. Defaults to the api-url value if not provided.'
+    required: false
+    default: ''
+  tenant-id:
+    description: 'DataRecs tenant ID'
+    required: true
+outputs:
+  access-token:
+    description: 'DataRecs access token'
+runs:
+  using: 'node20'
+  main: 'dist/index.js'
