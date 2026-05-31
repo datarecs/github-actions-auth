@@ -14,9 +14,17 @@ interface TokenExchangeError {
 async function run(): Promise<void> {
   try {
     const apiUrl = core.getInput('api-url', { required: false }) || 'https://api.datarecs.io';
-    const audienceInput = core.getInput('audience', { required: false });
-    const audience = audienceInput || apiUrl;
+    const tenantSlug = core.getInput('tenant-slug', { required: true });
     const tenantId = core.getInput('tenant-id', { required: true });
+
+    // OIDC Audience Convention (R7.1):
+    // The audience MUST be `https://<api-host>/<tenant-slug>`.
+    // The edge router (Cloudflare Worker) parses this audience to resolve the Tenant_Slug and
+    // route the request to the correct Cell WITHOUT verifying the JWT signature (R7.5).
+    // The Cell performs full cryptographic verification and cross-checks the slug in `aud`
+    // against the trusted X-Datarecs-Tenant-Slug header injected by the edge (R7.3).
+    const apiHost = new URL(apiUrl).origin; // e.g. "https://api.datarecs.io"
+    const audience = `${apiHost}/${tenantSlug}`;
 
     core.info('Requesting OIDC token from GitHub Actions runtime...');
     const subjectToken = await core.getIDToken(audience);
