@@ -2,6 +2,35 @@
 
 A GitHub Action that exchanges a GitHub Actions OIDC token for a short-lived DataRecs access token using keyless OIDC federation.
 
+## OIDC Audience Convention
+
+The OIDC token audience **must** be `https://api.datarecs.io/<tenant-slug>` (R7.1).
+
+This action constructs the audience automatically from the `api-url` and `tenant-slug` inputs:
+
+```
+audience = https://<api-url-host>/<tenant-slug>
+         = https://api.datarecs.io/acme
+```
+
+**Why the slug, not the tenant ID?**
+
+The edge router (Cloudflare Worker) parses the `aud` claim to resolve the Tenant_Slug and route the
+request to the correct Cell **without verifying the JWT signature** (R7.5 — signature verification
+is the Cell's responsibility). The slug is the routing key for the OIDC flow, just as it is for
+subdomain routing and the tenant-first login flow.
+
+The Cell (`core-api`) performs full cryptographic verification:
+1. JWT signature (GitHub JWKS)
+2. Issuer (`https://token.actions.githubusercontent.com`)
+3. Audience — the `aud` claim must encode `https://api.datarecs.io/<tenant-slug>` and the slug
+   must match the tenant resolved from the request (cross-checked against the trusted
+   `X-Datarecs-Tenant-Slug` header injected by the edge router)
+4. Claim conditions configured on the OIDC Connector
+
+A token with a mismatched audience (wrong slug, wrong host, or wrong format) is rejected by the
+Cell with `AUDIENCE_SLUG_MISMATCH` (fail closed — AGENTS.md Priority 1: tenant isolation).
+
 ## Prerequisites
 
 Your GitHub Actions workflow **must** have the `id-token: write` permission to request OIDC tokens from the GitHub Actions runtime. Without this permission, the action will fail.
@@ -13,7 +42,7 @@ permissions:
 
 You must also have an OIDC Connector configured in your DataRecs tenant that:
 - Has `https://token.actions.githubusercontent.com` as the issuer URL
-- Has the correct audience value matching your tenant (e.g., `https://api.datarecs.io/<tenant-id>`)
+- Has the audience value `https://api.datarecs.io/<your-tenant-slug>` (matching the convention above)
 - Has claim conditions that match your repository and workflow context
 
 ## Inputs
@@ -21,8 +50,8 @@ You must also have an OIDC Connector configured in your DataRecs tenant that:
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `api-url` | No | `https://api.datarecs.io` | DataRecs API base URL |
-| `audience` | Yes | — | OIDC token audience (should include your tenant ID, e.g., `https://api.datarecs.io/<tenant-id>`) |
-| `tenant-id` | Yes | — | Your DataRecs tenant ID |
+| `tenant-slug` | Yes | — | Your DataRecs tenant slug (e.g. `acme`). Used to construct the OIDC audience as `https://api.datarecs.io/<tenant-slug>`. |
+| `tenant-id` | Yes | — | Your DataRecs tenant ID (UUID). Sent in the exchange request body for tenant resolution. |
 
 ## Outputs
 
@@ -49,8 +78,8 @@ jobs:
       - name: Authenticate to DataRecs
         uses: datarecs/github-actions-auth@v1
         with:
-          audience: 'https://api.datarecs.io/tenant-abc123'
-          tenant-id: 'tenant-abc123'
+          tenant-slug: 'acme'
+          tenant-id: 'a3f9c1b20e4d8f7a'
 
       - name: Use DataRecs API
         run: |
@@ -65,8 +94,8 @@ jobs:
         id: auth
         uses: datarecs/github-actions-auth@v1
         with:
-          audience: 'https://api.datarecs.io/tenant-abc123'
-          tenant-id: 'tenant-abc123'
+          tenant-slug: 'acme'
+          tenant-id: 'a3f9c1b20e4d8f7a'
 
       - name: Use token from output
         run: |
@@ -74,25 +103,31 @@ jobs:
             https://api.datarecs.io/connectors/oidc
 ```
 
-### Custom API URL
-
-For self-hosted or staging environments:
+### Custom API URL (staging / self-hosted)
 
 ```yaml
       - name: Authenticate to DataRecs (staging)
         uses: datarecs/github-actions-auth@v1
         with:
           api-url: 'https://api.staging.datarecs.io'
-          audience: 'https://api.staging.datarecs.io/tenant-abc123'
-          tenant-id: 'tenant-abc123'
+          tenant-slug: 'acme'
+          tenant-id: 'a3f9c1b20e4d8f7a'
 ```
+
+The audience will be constructed as `https://api.staging.datarecs.io/acme`. Ensure your OIDC
+Connector's audience field matches this value.
 
 ## How It Works
 
-1. The action requests an OIDC token from the GitHub Actions runtime using the configured `audience` value.
-2. It sends a `POST` request to `{api-url}/auth/oidc/exchange` with the OIDC token and tenant ID.
-3. The DataRecs STS validates the token signature, checks claim conditions against your OIDC Connector configuration, and returns a short-lived access token.
-4. The access token is masked in logs, set as the `access-token` output, and exported as the `DATARECS_TOKEN` environment variable.
+1. The action constructs the OIDC audience as `https://<api-url-host>/<tenant-slug>`.
+2. It requests an OIDC token from the GitHub Actions runtime using that audience.
+3. It sends a `POST` request to `{api-url}/auth/oidc/exchange` with the OIDC token and tenant ID.
+4. The edge router parses the `aud` claim to route the request to the correct Cell (no signature
+   verification at the edge — R7.5).
+5. The Cell's `core-api` verifies the JWT signature (GitHub JWKS), issuer, audience slug, and
+   claim conditions, then returns a short-lived access token.
+6. The access token is masked in logs, set as the `access-token` output, and exported as the
+   `DATARECS_TOKEN` environment variable.
 
 ## Error Handling
 
@@ -102,7 +137,8 @@ If the token exchange fails, the action will fail the workflow step with the err
 |------------|-------------|
 | `INVALID_TENANT` | The specified tenant ID was not found |
 | `ISSUER_NOT_CONFIGURED` | No OIDC connector is configured for GitHub Actions in the specified tenant |
-| `AUDIENCE_MISMATCH` | The token audience does not match the connector configuration |
+| `AUDIENCE_SLUG_MISMATCH` | The token audience slug does not match the resolved tenant (wrong slug or wrong audience format) |
+| `AUDIENCE_MISMATCH` | The token audience does not match the connector's configured audience |
 | `CLAIM_CONDITION_FAILED` | A claim condition on the connector did not match (e.g., wrong repository or branch) |
 | `INVALID_SIGNATURE` | The OIDC token signature could not be verified |
 | `TOKEN_EXPIRED` | The OIDC token has expired |
@@ -112,6 +148,9 @@ If the token exchange fails, the action will fail the workflow step with the err
 - The access token is automatically masked in GitHub Actions logs via `core.setSecret()`.
 - Tokens are short-lived (1 hour) and scoped to the permissions defined in your OIDC Connector.
 - No long-lived secrets or API keys are required.
+- The audience convention (`https://api.datarecs.io/<slug>`) ensures the token is scoped to a
+  specific tenant. A token minted for one tenant cannot be used to authenticate to another tenant's
+  Cell — the Cell rejects it with `AUDIENCE_SLUG_MISMATCH`.
 
 ## License
 

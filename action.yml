@@ -5,12 +5,15 @@ inputs:
     description: 'DataRecs API base URL'
     required: false
     default: 'https://api.datarecs.io'
-  audience:
-    description: 'OIDC token audience. Defaults to the api-url value if not provided.'
-    required: false
-    default: ''
+  tenant-slug:
+    description: |
+      Your DataRecs tenant slug (e.g. "acme"). Used to construct the OIDC token audience
+      as `https://api.datarecs.io/<tenant-slug>` (the OIDC audience convention, R7.1).
+      The edge router parses this audience to route the request to the correct Cell; the
+      Cell verifies the audience encodes the correct tenant slug before issuing a token.
+    required: true
   tenant-id:
-    description: 'DataRecs tenant ID'
+    description: 'DataRecs tenant ID (UUID). Sent in the exchange request body for tenant resolution.'
     required: true
 outputs:
   access-token:
