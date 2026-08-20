@@ -50,6 +50,26 @@ export function buildAuthRequest(apiUrlInput: string, tenantSlug: string, tenant
 }
 
 /**
+ * Exchange a GitHub OIDC token without allowing redirects. A 307/308 redirect preserves the POST
+ * body, which would disclose the subject token and tenant identity to the redirect target.
+ */
+export function requestTokenExchange(
+  exchangeUrl: string,
+  subjectToken: string,
+  tenantId: string,
+): Promise<Response> {
+  return fetch(exchangeUrl, {
+    method: 'POST',
+    redirect: 'error',
+    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      subject_token: subjectToken,
+      tenant_id: tenantId,
+    }),
+  });
+}
+
+/**
  * Treat the exchange response as untrusted input. A malformed 2xx response
  * must never result in an undefined, unbounded, or non-Bearer value being
  * exported as a credential.

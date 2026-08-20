@@ -1,5 +1,5 @@
 import * as core from '@actions/core';
-import { buildAuthRequest, parseTokenExchangeResponse } from './auth-contract';
+import { buildAuthRequest, parseTokenExchangeResponse, requestTokenExchange } from './auth-contract';
 
 interface TokenExchangeError {
   error_code: string;
@@ -25,14 +25,11 @@ async function run(): Promise<void> {
 
     core.info(`Exchanging OIDC token with DataRecs STS at ${new URL(authRequest.exchangeUrl).origin}...`);
 
-    const response = await fetch(authRequest.exchangeUrl, {
-      method: 'POST',
-      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        subject_token: subjectToken,
-        tenant_id: authRequest.tenantId,
-      }),
-    });
+    const response = await requestTokenExchange(
+      authRequest.exchangeUrl,
+      subjectToken,
+      authRequest.tenantId,
+    );
 
     if (!response.ok) {
       let errorCode = `HTTP_${response.status}`;

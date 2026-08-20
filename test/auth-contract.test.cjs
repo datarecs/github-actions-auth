@@ -1,7 +1,25 @@
 const assert = require('node:assert/strict');
+const http = require('node:http');
 const test = require('node:test');
 
-const { buildAuthRequest, parseTokenExchangeResponse } = require('../dist/auth-contract.js');
+const {
+  buildAuthRequest,
+  parseTokenExchangeResponse,
+  requestTokenExchange,
+} = require('../dist/auth-contract.js');
+
+function listen(server) {
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve(server.address().port));
+  });
+}
+
+function close(server) {
+  return new Promise((resolve, reject) => {
+    server.close((error) => error ? reject(error) : resolve());
+  });
+}
 
 test('builds the canonical tenant-scoped audience and exchange URL', () => {
   assert.deepEqual(
@@ -56,5 +74,42 @@ test('accepts only a complete Bearer token response with a positive finite expir
     { access_token: 'token-value', token_type: 'Bearer', expires_in: Number.POSITIVE_INFINITY },
   ]) {
     assert.throws(() => parseTokenExchangeResponse(response));
+  }
+});
+
+test('rejects redirects without forwarding the OIDC token body to another origin', async () => {
+  let redirectedRequests = 0;
+  let redirectedBody = '';
+  const redirectTarget = http.createServer((request, response) => {
+    redirectedRequests += 1;
+    request.setEncoding('utf8');
+    request.on('data', (chunk) => { redirectedBody += chunk; });
+    request.on('end', () => {
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end('{"access_token":"stolen","token_type":"Bearer","expires_in":3600}');
+    });
+  });
+  const targetPort = await listen(redirectTarget);
+
+  const exchangeServer = http.createServer((_request, response) => {
+    response.writeHead(307, {
+      Location: `http://127.0.0.1:${targetPort}/capture`,
+    });
+    response.end();
+  });
+  const exchangePort = await listen(exchangeServer);
+
+  try {
+    await assert.rejects(
+      requestTokenExchange(
+        `http://127.0.0.1:${exchangePort}/auth/oidc/exchange`,
+        'github-oidc-subject-token-canary',
+        'abcdef0123456789',
+      ),
+    );
+    assert.equal(redirectedRequests, 0);
+    assert.equal(redirectedBody, '');
+  } finally {
+    await Promise.all([close(exchangeServer), close(redirectTarget)]);
   }
 });

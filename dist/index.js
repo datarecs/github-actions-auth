@@ -25650,6 +25650,7 @@ module.exports = {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.buildAuthRequest = buildAuthRequest;
+exports.requestTokenExchange = requestTokenExchange;
 exports.parseTokenExchangeResponse = parseTokenExchangeResponse;
 const TENANT_ID_PATTERN = /^[a-f0-9]{16}$/;
 const TENANT_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
@@ -25686,6 +25687,21 @@ function buildAuthRequest(apiUrlInput, tenantSlug, tenantId) {
         exchangeUrl: `${apiUrl.origin}/auth/oidc/exchange`,
         tenantId,
     };
+}
+/**
+ * Exchange a GitHub OIDC token without allowing redirects. A 307/308 redirect preserves the POST
+ * body, which would disclose the subject token and tenant identity to the redirect target.
+ */
+function requestTokenExchange(exchangeUrl, subjectToken, tenantId) {
+    return fetch(exchangeUrl, {
+        method: 'POST',
+        redirect: 'error',
+        headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            subject_token: subjectToken,
+            tenant_id: tenantId,
+        }),
+    });
 }
 /**
  * Treat the exchange response as untrusted input. A malformed 2xx response
@@ -25768,14 +25784,7 @@ async function run() {
         core.info('Requesting OIDC token from GitHub Actions runtime...');
         const subjectToken = await core.getIDToken(authRequest.audience);
         core.info(`Exchanging OIDC token with DataRecs STS at ${new URL(authRequest.exchangeUrl).origin}...`);
-        const response = await fetch(authRequest.exchangeUrl, {
-            method: 'POST',
-            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                subject_token: subjectToken,
-                tenant_id: authRequest.tenantId,
-            }),
-        });
+        const response = await (0, auth_contract_1.requestTokenExchange)(authRequest.exchangeUrl, subjectToken, authRequest.tenantId);
         if (!response.ok) {
             let errorCode = `HTTP_${response.status}`;
             let errorMessage = `Token exchange failed with status ${response.status}`;
