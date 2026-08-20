@@ -1,10 +1,5 @@
 import * as core from '@actions/core';
-
-interface TokenExchangeResponse {
-  access_token: string;
-  expires_in: number;
-  token_type: 'Bearer';
-}
+import { buildAuthRequest, parseTokenExchangeResponse } from './auth-contract';
 
 interface TokenExchangeError {
   error_code: string;
@@ -23,21 +18,19 @@ async function run(): Promise<void> {
     // route the request to the correct Cell WITHOUT verifying the JWT signature (R7.5).
     // The Cell performs full cryptographic verification and cross-checks the slug in `aud`
     // against the trusted X-Datarecs-Tenant-Slug header injected by the edge (R7.3).
-    const apiHost = new URL(apiUrl).origin; // e.g. "https://api.datarecs.io"
-    const audience = `${apiHost}/${tenantSlug}`;
+    const authRequest = buildAuthRequest(apiUrl, tenantSlug, tenantId);
 
     core.info('Requesting OIDC token from GitHub Actions runtime...');
-    const subjectToken = await core.getIDToken(audience);
+    const subjectToken = await core.getIDToken(authRequest.audience);
 
-    core.info(`Exchanging OIDC token with DataRecs STS at ${apiUrl}...`);
-    const exchangeUrl = `${apiUrl.replace(/\/+$/, '')}/auth/oidc/exchange`;
+    core.info(`Exchanging OIDC token with DataRecs STS at ${new URL(authRequest.exchangeUrl).origin}...`);
 
-    const response = await fetch(exchangeUrl, {
+    const response = await fetch(authRequest.exchangeUrl, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({
         subject_token: subjectToken,
-        tenant_id: tenantId,
+        tenant_id: authRequest.tenantId,
       }),
     });
 
@@ -61,7 +54,7 @@ async function run(): Promise<void> {
       return;
     }
 
-    const data = (await response.json()) as TokenExchangeResponse;
+    const data = parseTokenExchangeResponse(await response.json());
     const accessToken = data.access_token;
 
     core.setSecret(accessToken);

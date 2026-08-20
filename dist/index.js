@@ -25643,6 +25643,75 @@ module.exports = {
 
 /***/ }),
 
+/***/ 960:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.buildAuthRequest = buildAuthRequest;
+exports.parseTokenExchangeResponse = parseTokenExchangeResponse;
+const TENANT_ID_PATTERN = /^[a-f0-9]{16}$/;
+const TENANT_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+/**
+ * Validate every operator-controlled value before requesting a GitHub OIDC
+ * token. In particular, an invalid tenant boundary must fail before a token is
+ * minted or sent over the network.
+ */
+function buildAuthRequest(apiUrlInput, tenantSlug, tenantId) {
+    let apiUrl;
+    try {
+        apiUrl = new URL(apiUrlInput);
+    }
+    catch {
+        throw new Error('api-url must be a valid absolute HTTPS URL');
+    }
+    if (apiUrl.protocol !== 'https:') {
+        throw new Error('api-url must use HTTPS');
+    }
+    if (apiUrl.username || apiUrl.password) {
+        throw new Error('api-url must not contain embedded credentials');
+    }
+    if (apiUrl.pathname !== '/' || apiUrl.search || apiUrl.hash) {
+        throw new Error('api-url must be an origin without a path, query, or fragment');
+    }
+    if (!TENANT_SLUG_PATTERN.test(tenantSlug)) {
+        throw new Error('tenant-slug must be a lowercase DNS label');
+    }
+    if (!TENANT_ID_PATTERN.test(tenantId)) {
+        throw new Error('tenant-id must be exactly 16 lowercase hexadecimal characters');
+    }
+    return {
+        audience: `${apiUrl.origin}/${tenantSlug}`,
+        exchangeUrl: `${apiUrl.origin}/auth/oidc/exchange`,
+        tenantId,
+    };
+}
+/**
+ * Treat the exchange response as untrusted input. A malformed 2xx response
+ * must never result in an undefined, unbounded, or non-Bearer value being
+ * exported as a credential.
+ */
+function parseTokenExchangeResponse(value) {
+    if (typeof value !== 'object' || value === null) {
+        throw new Error('DataRecs token exchange returned an invalid response');
+    }
+    const candidate = value;
+    if (typeof candidate.access_token !== 'string' || candidate.access_token.length === 0) {
+        throw new Error('DataRecs token exchange response did not contain an access token');
+    }
+    if (candidate.token_type !== 'Bearer') {
+        throw new Error('DataRecs token exchange response did not contain a Bearer token');
+    }
+    if (typeof candidate.expires_in !== 'number' || !Number.isFinite(candidate.expires_in) || candidate.expires_in <= 0) {
+        throw new Error('DataRecs token exchange response contained an invalid expiry');
+    }
+    return candidate;
+}
+
+
+/***/ }),
+
 /***/ 9407:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -25683,6 +25752,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(7484));
+const auth_contract_1 = __nccwpck_require__(960);
 async function run() {
     try {
         const apiUrl = core.getInput('api-url', { required: false }) || 'https://api.datarecs.io';
@@ -25694,18 +25764,16 @@ async function run() {
         // route the request to the correct Cell WITHOUT verifying the JWT signature (R7.5).
         // The Cell performs full cryptographic verification and cross-checks the slug in `aud`
         // against the trusted X-Datarecs-Tenant-Slug header injected by the edge (R7.3).
-        const apiHost = new URL(apiUrl).origin; // e.g. "https://api.datarecs.io"
-        const audience = `${apiHost}/${tenantSlug}`;
+        const authRequest = (0, auth_contract_1.buildAuthRequest)(apiUrl, tenantSlug, tenantId);
         core.info('Requesting OIDC token from GitHub Actions runtime...');
-        const subjectToken = await core.getIDToken(audience);
-        core.info(`Exchanging OIDC token with DataRecs STS at ${apiUrl}...`);
-        const exchangeUrl = `${apiUrl.replace(/\/+$/, '')}/auth/oidc/exchange`;
-        const response = await fetch(exchangeUrl, {
+        const subjectToken = await core.getIDToken(authRequest.audience);
+        core.info(`Exchanging OIDC token with DataRecs STS at ${new URL(authRequest.exchangeUrl).origin}...`);
+        const response = await fetch(authRequest.exchangeUrl, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 subject_token: subjectToken,
-                tenant_id: tenantId,
+                tenant_id: authRequest.tenantId,
             }),
         });
         if (!response.ok) {
@@ -25726,7 +25794,7 @@ async function run() {
             core.setFailed(`${errorCode}: ${errorMessage}`);
             return;
         }
-        const data = (await response.json());
+        const data = (0, auth_contract_1.parseTokenExchangeResponse)(await response.json());
         const accessToken = data.access_token;
         core.setSecret(accessToken);
         core.setOutput('access-token', accessToken);
