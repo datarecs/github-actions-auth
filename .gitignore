@@ -1,2 +1,6 @@
 node_modules/
 *.env
+dist/auth-contract.d.ts
+dist/auth-contract.d.ts.map
+dist/auth-contract.js
+dist/auth-contract.js.map

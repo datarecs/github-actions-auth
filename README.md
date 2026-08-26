@@ -49,9 +49,9 @@ You must also have an OIDC Connector configured in your DataRecs tenant that:
 
 | Input | Required | Default | Description |
 |-------|----------|---------|-------------|
-| `api-url` | No | `https://api.datarecs.io` | DataRecs API base URL |
+| `api-url` | No | `https://api.datarecs.io` | DataRecs API base URL. Must be `datarecs.io` or a `datarecs.io` subdomain. |
 | `tenant-slug` | Yes | — | Your DataRecs tenant slug (e.g. `acme`). Used to construct the OIDC audience as `https://api.datarecs.io/<tenant-slug>`. |
-| `tenant-id` | Yes | — | Your DataRecs tenant ID (UUID). Sent in the exchange request body for tenant resolution. |
+| `tenant-id` | Yes | — | Your DataRecs tenant ID (16 lowercase hexadecimal characters). Sent in the exchange request body for tenant resolution. |
 
 ## Outputs
 
