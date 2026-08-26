@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dist-drift-check:
+    name: "Verify dist/ matches src/"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (tsc)
+        run: npm run build
+
+      - name: Package (ncc bundle)
+        run: npm run package
+
+      - name: Fail if committed dist/ is stale
+        run: |
+          if ! git diff --exit-code -- dist/; then
+            echo "::error::dist/ is out of date. Run 'npm run build && npm run package' and commit the result."
+            exit 1
+          fi
