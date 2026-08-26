@@ -13,7 +13,7 @@ inputs:
       Cell verifies the audience encodes the correct tenant slug before issuing a token.
     required: true
   tenant-id:
-    description: 'DataRecs tenant ID (UUID). Sent in the exchange request body for tenant resolution.'
+    description: 'DataRecs tenant ID (16 lowercase hexadecimal characters). Sent in the exchange request body for tenant resolution.'
     required: true
 outputs:
   access-token:

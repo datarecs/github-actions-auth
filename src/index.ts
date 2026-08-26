@@ -60,8 +60,9 @@ async function run(): Promise<void> {
 
     core.info('Successfully authenticated to DataRecs.');
   } catch (error) {
+    const cause = error instanceof Error && error.cause instanceof Error ? `: ${error.cause.message}` : '';
     const message = error instanceof Error ? error.message : String(error);
-    core.setFailed(`Action failed: ${message}`);
+    core.setFailed(`Action failed: ${message}${cause}`);
   }
 }
 

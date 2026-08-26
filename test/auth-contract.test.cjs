@@ -44,6 +44,23 @@ test('rejects unsafe API URLs before requesting a GitHub token', () => {
   }
 });
 
+test('accepts datarecs.io and its subdomains, rejects every other host', () => {
+  for (const apiUrl of ['https://datarecs.io', 'https://api.datarecs.io', 'https://api.dev.datarecs.io']) {
+    assert.doesNotThrow(() => buildAuthRequest(apiUrl, 'acme', 'abcdef0123456789'));
+  }
+
+  for (const apiUrl of [
+    'https://attacker.example',
+    'https://datarecs.io.attacker.example',
+    'https://notdatarecs.io',
+    'https://169.254.169.254',
+    'https://127.0.0.1',
+    'https://localhost',
+  ]) {
+    assert.throws(() => buildAuthRequest(apiUrl, 'acme', 'abcdef0123456789'));
+  }
+});
+
 test('rejects ambiguous tenant boundaries', () => {
   for (const slug of ['Acme', '-acme', 'acme-', 'acme/path', 'acme.example']) {
     assert.throws(() => buildAuthRequest('https://api.datarecs.io', slug, 'abcdef0123456789'));

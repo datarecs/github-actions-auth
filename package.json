@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc",
     "package": "ncc build src/index.ts -o dist",
-    "test": "npm run build && node --test test/*.test.cjs"
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.cjs",
+    "posttest": "npm run package"
   },
   "keywords": [
     "github-actions",

@@ -12,11 +12,16 @@ export interface AuthRequest {
 
 const TENANT_ID_PATTERN = /^[a-f0-9]{16}$/;
 const TENANT_SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const ALLOWED_API_HOST_SUFFIX = '.datarecs.io';
+const ALLOWED_API_HOST = 'datarecs.io';
 
 /**
  * Validate every operator-controlled value before requesting a GitHub OIDC
  * token. In particular, an invalid tenant boundary must fail before a token is
- * minted or sent over the network.
+ * minted or sent over the network. `api-url` is restricted to the datarecs.io
+ * domain: the subject token this action requests is bound to the audience derived
+ * from `api-url`, so an unrestricted host would let a misconfigured or attacker-
+ * controlled `api-url` redirect that GitHub OIDC token to a third party.
  */
 export function buildAuthRequest(apiUrlInput: string, tenantSlug: string, tenantId: string): AuthRequest {
   let apiUrl: URL;
@@ -34,6 +39,9 @@ export function buildAuthRequest(apiUrlInput: string, tenantSlug: string, tenant
   }
   if (apiUrl.pathname !== '/' || apiUrl.search || apiUrl.hash) {
     throw new Error('api-url must be an origin without a path, query, or fragment');
+  }
+  if (apiUrl.hostname !== ALLOWED_API_HOST && !apiUrl.hostname.endsWith(ALLOWED_API_HOST_SUFFIX)) {
+    throw new Error('api-url must be datarecs.io or a datarecs.io subdomain');
   }
   if (!TENANT_SLUG_PATTERN.test(tenantSlug)) {
     throw new Error('tenant-slug must be a lowercase DNS label');
